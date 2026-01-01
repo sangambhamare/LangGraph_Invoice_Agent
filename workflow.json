@@ -1,0 +1,146 @@
+{
+  "version": "1.0",
+  "workflow_name": "InvoiceProcessing_V1",
+  "description": "LangGraph invoice processing with HITL checkpoint/resume and Bigtool tool selection.",
+  "config": {
+    "match_threshold": 0.90,
+    "two_way_tolerance_pct": 5,
+    "human_review_queue": "human_review_queue",
+    "checkpoint_table": "checkpoints",
+    "default_db": "sqlite:///demo.db",
+    "retry_policy": {
+      "max_retries": 3,
+      "backoff_seconds": 2
+    }
+  },
+  "inputs": {
+    "invoice_payload": {
+      "invoice_id": "string",
+      "vendor_name": "string",
+      "vendor_tax_id": "string",
+      "invoice_date": "string",
+      "due_date": "string",
+      "amount": "number",
+      "currency": "string",
+      "line_items": [
+        {
+          "desc": "string",
+          "qty": "number",
+          "unit_price": "number",
+          "total": "number"
+        }
+      ],
+      "attachments": "[string]"
+    },
+    "audit_log": "[string]"
+  },
+  "stages": [
+    {
+      "id": "INTAKE",
+      "mode": "deterministic",
+      "server": "COMMON",
+      "abilities": [
+        "validate_schema",
+        "persist_raw"
+      ]
+    },
+    {
+      "id": "UNDERSTAND",
+      "mode": "deterministic",
+      "server": "ATLAS",
+      "pool": [
+        "google_vision",
+        "tesseract"
+      ],
+      "bigtool_selection": "OCR_TOOL"
+    },
+    {
+      "id": "PREPARE",
+      "mode": "deterministic",
+      "server": "ATLAS",
+      "pool": [
+        "clearbit",
+        "vendor_db"
+      ],
+      "bigtool_selection": "ENRICHMENT_TOOL"
+    },
+    {
+      "id": "RETRIEVE",
+      "mode": "deterministic",
+      "server": "ATLAS",
+      "pool": [
+        "sap_sandbox",
+        "oracle_erp"
+      ],
+      "bigtool_selection": "ERP_CONNECTOR"
+    },
+    {
+      "id": "MATCH_TWO_WAY",
+      "mode": "deterministic",
+      "server": "COMMON",
+      "abilities": [
+        "compute_match_score"
+      ]
+    },
+    {
+      "id": "CHECKPOINT_HITL",
+      "mode": "deterministic",
+      "server": "COMMON",
+      "hitl_logic": "PAUSE_AND_STORE_STATE"
+    },
+    {
+      "id": "HITL_DECISION",
+      "mode": "non-deterministic",
+      "server": "ATLAS",
+      "hitl_logic": "RESUME_AND_ROUTE"
+    },
+    {
+      "id": "RECONCILE",
+      "mode": "deterministic",
+      "server": "COMMON",
+      "abilities": [
+        "build_accounting_entries"
+      ]
+    },
+    {
+      "id": "APPROVE",
+      "mode": "deterministic",
+      "server": "ATLAS",
+      "abilities": [
+        "apply_invoice_approval_policy"
+      ]
+    },
+    {
+      "id": "POSTING",
+      "mode": "deterministic",
+      "server": "ATLAS",
+      "pool": [
+        "sap_sandbox"
+      ],
+      "abilities": [
+        "post_to_erp",
+        "schedule_payment"
+      ]
+    },
+    {
+      "id": "NOTIFY",
+      "mode": "deterministic",
+      "server": "ATLAS",
+      "pool": [
+        "sendgrid"
+      ],
+      "abilities": [
+        "notify_vendor",
+        "notify_finance_team"
+      ]
+    },
+    {
+      "id": "COMPLETE",
+      "mode": "deterministic",
+      "server": "COMMON",
+      "abilities": [
+        "output_final_payload"
+      ]
+    }
+  ]
+}
